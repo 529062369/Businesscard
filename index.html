@@ -17,6 +17,7 @@
           </div>
         </div>
         <div class="topbar__actions">
+          <span id="unlockStatus" class="statusPill" aria-live="polite"></span>
           <button id="downloadBtn" class="btn btn--primary" type="button">下载 PNG</button>
           <button id="resetBtn" class="btn" type="button">重置</button>
         </div>
@@ -84,7 +85,28 @@
       </section>
     </main>
 
+    <dialog id="unlockDialog" class="dialog">
+      <form id="unlockForm" method="dialog" class="dialog__inner">
+        <div class="dialog__head">
+          <div class="dialog__title">解锁导出</div>
+          <div class="dialog__subtitle">首次导出免费；从第二次开始需要输入解锁码，激活后 1 年内可无限导出。</div>
+        </div>
+
+        <div class="dialog__body">
+          <div class="field">
+            <label for="unlockCode">解锁码</label>
+            <input id="unlockCode" name="unlockCode" type="text" placeholder="请输入你获得的解锁码" autocomplete="one-time-code" />
+            <div id="unlockError" class="dialog__error" role="status" aria-live="polite"></div>
+          </div>
+        </div>
+
+        <div class="dialog__actions">
+          <button id="unlockCancel" class="btn" value="cancel">稍后再说</button>
+          <button id="unlockSubmit" class="btn btn--primary" value="ok">激活解锁</button>
+        </div>
+      </form>
+    </dialog>
+
     <script src="./app.js"></script>
   </body>
 </html>
-

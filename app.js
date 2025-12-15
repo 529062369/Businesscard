@@ -2,10 +2,10 @@ const CARD_W = 1050;
 const CARD_H = 600;
 
 const DEFAULTS = {
-  name: "王小明",
-  title: "产品经理",
-  company: "绿野科技",
-  bio: "关注用户体验与增长，擅长从 0 到 1 搭建产品并推动落地。喜欢把复杂问题讲清楚，并把产品做简单。",
+  name: "Wang Xiaoming",
+  title: "Product Manager",
+  company: "Green Field Tech",
+  bio: "Focus on UX and growth; builds products from 0 to 1 and drives launch. Loves clarifying complex problems and making products simple.",
   email: "name@example.com",
   phone: "138 0000 0000",
 };
@@ -15,12 +15,78 @@ const preview = document.getElementById("preview");
 const downloadBtn = document.getElementById("downloadBtn");
 const resetBtn = document.getElementById("resetBtn");
 const bioCount = document.getElementById("bioCount");
+const unlockStatus = document.getElementById("unlockStatus");
+const unlockDialog = document.getElementById("unlockDialog");
+const unlockForm = document.getElementById("unlockForm");
+const unlockCodeInput = document.getElementById("unlockCode");
+const unlockError = document.getElementById("unlockError");
 
 const measureCanvas = document.createElement("canvas");
 const measureCtx = measureCanvas.getContext("2d");
+const encoder = new TextEncoder();
+const decoder = new TextDecoder();
+
+let licenseCache = { status: "unknown", expiresAt: null };
+
+const STORAGE_KEYS = {
+  exportCount: "bc_export_count_v1",
+  unlock: "bc_unlock_v1",
+};
+
+const UNLOCK_VALID_DAYS = 365;
+
+// 基于哈希的本地校验（提升非技术用户绕过难度；仍然可被逆向）
+const HASH_SALT = "GreenCard_Salt_v1";
+const SECRET_KEY = "GreenCard_Secret_v1"; // 用于加密本地授权数据
+const VALID_CODE_HASHES = new Set([
+  "LnniC3cYvDDmaVhuub733Xj9O/mCHHXb93MOxgmW1H0=", // PM-7K3F-2Q9D-8H1M + salt
+  "V6OTS5mXZ32NdUnjWY2FqwALGjme7rvIbbqw2QO8Mnc=", // PM-4N8W-6T2J-1R5C + salt
+  "srgerTKnpgBiPfAFfYEUhchg3EkJHWvita6swomDGBI=", // PM-9C6X-3V7P-5L2A + salt
+]);
 
 function normalize(value) {
   return (value ?? "").toString().trim();
+}
+
+function toBase64(uint8) {
+  let binary = "";
+  for (let i = 0; i < uint8.length; i++) binary += String.fromCharCode(uint8[i]);
+  return btoa(binary);
+}
+
+function fromBase64(str) {
+  const binary = atob(str);
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function sha256Base64(str) {
+  const buf = encoder.encode(str);
+  const hash = await crypto.subtle.digest("SHA-256", buf);
+  return toBase64(new Uint8Array(hash));
+}
+
+async function getAesKey() {
+  return crypto.subtle.importKey("raw", encoder.encode(SECRET_KEY), "AES-GCM", false, ["encrypt", "decrypt"]);
+}
+
+async function encryptLicense(licenseObj) {
+  const key = await getAesKey();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = encoder.encode(JSON.stringify(licenseObj));
+  const cipherBuf = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+  return { iv: toBase64(iv), cipher: toBase64(new Uint8Array(cipherBuf)) };
+}
+
+async function decryptLicense(payload) {
+  const key = await getAesKey();
+  const iv = fromBase64(payload.iv);
+  const cipher = fromBase64(payload.cipher);
+  const plainBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipher);
+  const json = decoder.decode(plainBuf);
+  return JSON.parse(json);
 }
 
 function escapeXml(value) {
@@ -112,6 +178,181 @@ function getState() {
     phone: normalize(data.get("phone")) || DEFAULTS.phone,
   };
 }
+
+function readJson(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function writeJson(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function getExportCount() {
+  const raw = localStorage.getItem(STORAGE_KEYS.exportCount);
+  const num = Number(raw);
+  return Number.isFinite(num) && num >= 0 ? num : 0;
+}
+
+function incrementExportCount() {
+  const next = getExportCount() + 1;
+  localStorage.setItem(STORAGE_KEYS.exportCount, String(next));
+  return next;
+}
+
+function clearLicense() {
+  localStorage.removeItem(STORAGE_KEYS.unlock);
+  licenseCache = { status: "none", expiresAt: null };
+}
+
+async function loadLicenseFromStorage() {
+  const payload = readJson(STORAGE_KEYS.unlock);
+  if (!payload || !payload.iv || !payload.cipher) {
+    licenseCache = { status: "none", expiresAt: null };
+    return licenseCache;
+  }
+
+  try {
+    const license = await decryptLicense(payload);
+    if (!license || typeof license.expireAt !== "number") throw new Error("invalid license");
+    if (Date.now() >= license.expireAt) {
+      clearLicense();
+    } else {
+      licenseCache = { status: "valid", expiresAt: license.expireAt };
+    }
+  } catch (err) {
+    console.warn("license decrypt failed", err);
+    clearLicense();
+  }
+  return licenseCache;
+}
+
+async function ensureLicenseLoaded() {
+  if (licenseCache.status === "unknown") {
+    await loadLicenseFromStorage();
+  }
+}
+
+async function initAuth() {
+  await ensureLicenseLoaded();
+  updateUnlockStatus();
+}
+
+function isUnlockedNow() {
+  return licenseCache.status === "valid" && typeof licenseCache.expiresAt === "number" && Date.now() < licenseCache.expiresAt;
+}
+
+function formatDate(ts) {
+  const d = new Date(ts);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function updateUnlockStatus() {
+  if (!unlockStatus) return;
+  if (isUnlockedNow()) {
+    unlockStatus.textContent = `已解锁至 ${formatDate(licenseCache.expiresAt)}`;
+    unlockStatus.classList.add("statusPill--on");
+    unlockStatus.classList.remove("statusPill--off");
+    unlockStatus.style.display = "";
+    return;
+  }
+
+  const count = getExportCount();
+  if (count <= 0) {
+    unlockStatus.textContent = "首次免费";
+  } else {
+    unlockStatus.textContent = "未解锁";
+  }
+  unlockStatus.classList.add("statusPill--off");
+  unlockStatus.classList.remove("statusPill--on");
+  unlockStatus.style.display = "";
+}
+
+async function verifyUnlockCode(code) {
+  const normalized = normalize(code).toUpperCase();
+  if (!normalized) return false;
+  const hashed = await sha256Base64(normalized + HASH_SALT);
+  return VALID_CODE_HASHES.has(hashed);
+}
+
+let pendingUnlockResolve = null;
+
+function initUnlockDialog() {
+  if (!unlockDialog || !unlockForm || !unlockCodeInput || !unlockError) return;
+  if (unlockDialog.dataset.ready === "1") return;
+  unlockDialog.dataset.ready = "1";
+
+  unlockForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    unlockError.textContent = "";
+
+    const code = unlockCodeInput.value;
+    const ok = await verifyUnlockCode(code);
+    if (!ok) {
+      unlockError.textContent = "解锁码无效，请检查后重试。";
+      unlockCodeInput.focus();
+      return;
+    }
+
+    const expiresAt = Date.now() + UNLOCK_VALID_DAYS * 24 * 60 * 60 * 1000;
+    const encrypted = await encryptLicense({ issuedAt: Date.now(), expireAt: expiresAt, v: 1 });
+    writeJson(STORAGE_KEYS.unlock, encrypted);
+    licenseCache = { status: "valid", expiresAt };
+    updateUnlockStatus();
+    unlockDialog.close("ok");
+  });
+
+  unlockDialog.addEventListener("cancel", (e) => {
+    e.preventDefault();
+    unlockDialog.close("cancel");
+  });
+
+  unlockDialog.addEventListener("close", () => {
+    if (!pendingUnlockResolve) return;
+    const ok = unlockDialog.returnValue === "ok";
+    const resolve = pendingUnlockResolve;
+    pendingUnlockResolve = null;
+    resolve(ok);
+  });
+}
+
+async function promptUnlockOnce() {
+  if (!unlockDialog || !unlockForm || !unlockCodeInput || !unlockError) {
+    const code = prompt("Enter unlock code (1 year validity after activation):");
+    if (!code) return false;
+    const ok = await verifyUnlockCode(code);
+    if (!ok) {
+      alert("Invalid code");
+      return false;
+    }
+    const expiresAt = Date.now() + UNLOCK_VALID_DAYS * 24 * 60 * 60 * 1000;
+    const encrypted = await encryptLicense({ issuedAt: Date.now(), expireAt: expiresAt, v: 1 });
+    writeJson(STORAGE_KEYS.unlock, encrypted);
+    licenseCache = { status: "valid", expiresAt };
+    updateUnlockStatus();
+    return true;
+  }
+
+  initUnlockDialog();
+  unlockError.textContent = "";
+  unlockCodeInput.value = "";
+  if (unlockDialog.open) unlockDialog.close("cancel");
+
+  return await new Promise((resolve) => {
+    pendingUnlockResolve = resolve;
+    unlockDialog.showModal();
+    unlockCodeInput.focus();
+  });
+}
+
 
 function renderCardSvg(state) {
   const pad = 72;
@@ -327,16 +568,26 @@ function setFormDefaults() {
 form.addEventListener("input", () => update());
 downloadBtn.addEventListener("click", async () => {
   downloadBtn.disabled = true;
-  downloadBtn.textContent = "正在生成…";
+  downloadBtn.textContent = "Generating...";
   try {
+    await ensureLicenseLoaded();
+    const unlocked = isUnlockedNow();
+    const count = getExportCount();
+    if (!unlocked && count >= 1) {
+      const ok = await promptUnlockOnce();
+      if (!ok) return;
+    }
+
     const svg = update();
     await exportPng(svg);
+    incrementExportCount();
+    updateUnlockStatus();
   } catch (err) {
     console.error(err);
-    alert(err instanceof Error ? err.message : "导出失败");
+    alert(err instanceof Error ? err.message : "Export failed");
   } finally {
     downloadBtn.disabled = false;
-    downloadBtn.textContent = "下载 PNG";
+    downloadBtn.textContent = "Download PNG";
   }
 });
 resetBtn.addEventListener("click", () => {
@@ -346,3 +597,4 @@ resetBtn.addEventListener("click", () => {
 
 setFormDefaults();
 update();
+initAuth().catch((err) => console.error(err));
