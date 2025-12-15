@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>简介卡片生成器</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="topbar">
+        <div class="brand">
+          <div class="brand__mark" aria-hidden="true"></div>
+          <div class="brand__text">
+            <div class="brand__title">简介卡片生成器</div>
+            <div class="brand__subtitle">横向标准名片 · 一键导出 PNG</div>
+          </div>
+        </div>
+        <div class="topbar__actions">
+          <button id="downloadBtn" class="btn btn--primary" type="button">下载 PNG</button>
+          <button id="resetBtn" class="btn" type="button">重置</button>
+        </div>
+      </header>
+
+      <section class="grid">
+        <form id="form" class="panel" autocomplete="on">
+          <h2 class="panel__title">填写信息</h2>
+          <div class="field">
+            <label for="name">姓名</label>
+            <input id="name" name="name" type="text" placeholder="例如：王小明" maxlength="24" />
+          </div>
+
+          <div class="field">
+            <label for="title">职位 / 头衔</label>
+            <input id="title" name="title" type="text" placeholder="例如：产品经理" maxlength="32" />
+          </div>
+
+          <div class="field">
+            <label for="company">公司</label>
+            <input id="company" name="company" type="text" placeholder="例如：绿野科技" maxlength="40" />
+          </div>
+
+          <div class="field">
+            <label for="bio">个人简介</label>
+            <textarea
+              id="bio"
+              name="bio"
+              rows="5"
+              placeholder="例如：关注用户体验与增长，擅长从 0 到 1 搭建产品并推动落地。"
+              maxlength="180"
+            ></textarea>
+            <div class="hint"><span id="bioCount">0</span>/180</div>
+          </div>
+
+          <div class="field field--row">
+            <div>
+              <label for="email">邮箱</label>
+              <input id="email" name="email" type="email" placeholder="name@example.com" maxlength="64" />
+            </div>
+            <div>
+              <label for="phone">电话</label>
+              <input id="phone" name="phone" type="tel" placeholder="例如：138 0000 0000" maxlength="32" />
+            </div>
+          </div>
+
+          <div class="smallprint">
+            提示：右侧卡片为标准名片比例（导出 1050×600 PNG，约等于 3.5×2 英寸@300dpi）。
+          </div>
+        </form>
+
+        <section class="panel panel--preview">
+          <div class="panel__titleRow">
+            <h2 class="panel__title">预览</h2>
+            <div class="badge">清新绿</div>
+          </div>
+          <div class="previewWrap">
+            <div id="preview" class="preview" aria-label="名片预览"></div>
+          </div>
+          <div class="previewMeta">
+            <div class="metaItem"><span class="dot"></span>姓名/职位在顶部</div>
+            <div class="metaItem"><span class="dot"></span>联系方式在底部</div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
+
